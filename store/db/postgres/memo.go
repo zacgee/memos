@@ -3,7 +3,7 @@ package postgres
 import (
 	"context"
 	"database/sql"
-	"fmt"
+	"strconv"
 	"strings"
 
 	"github.com/pkg/errors"
@@ -29,44 +29,44 @@ func (d *DB) CreateMemo(ctx context.Context, create *store.Memo) (*store.Memo, e
 }
 
 func (d *DB) ListMemos(ctx context.Context, find *store.FindMemo) ([]*store.Memo, error) {
-	where, args := []string{"1 = 1"}, []any{}
+	where, args := []string{"1 = 1"}, []interface{}{}
 
 	if v := find.ID; v != nil {
-		where, args = append(where, "memo.id = "+placeholder(len(args)+1)), append(args, *v)
+		where, args = append(where, "memo.id = $"+strconv.Itoa(len(args)+1)), append(args, *v)
 	}
 	if v := find.UID; v != nil {
-		where, args = append(where, "memo.uid = "+placeholder(len(args)+1)), append(args, *v)
+		where, args = append(where, "memo.uid = $"+strconv.Itoa(len(args)+1)), append(args, *v)
 	}
 	if v := find.CreatorID; v != nil {
-		where, args = append(where, "memo.creator_id = "+placeholder(len(args)+1)), append(args, *v)
+		where, args = append(where, "memo.creator_id = $"+strconv.Itoa(len(args)+1)), append(args, *v)
 	}
 	if v := find.RowStatus; v != nil {
-		where, args = append(where, "memo.row_status = "+placeholder(len(args)+1)), append(args, *v)
+		where, args = append(where, "memo.row_status = $"+strconv.Itoa(len(args)+1)), append(args, *v)
 	}
 	if v := find.CreatedTsBefore; v != nil {
-		where, args = append(where, "memo.created_ts < "+placeholder(len(args)+1)), append(args, *v)
+		where, args = append(where, "memo.created_ts < $"+strconv.Itoa(len(args)+1)), append(args, *v)
 	}
 	if v := find.CreatedTsAfter; v != nil {
-		where, args = append(where, "memo.created_ts > "+placeholder(len(args)+1)), append(args, *v)
+		where, args = append(where, "memo.created_ts > $"+strconv.Itoa(len(args)+1)), append(args, *v)
 	}
 	if v := find.UpdatedTsBefore; v != nil {
-		where, args = append(where, "memo.updated_ts < "+placeholder(len(args)+1)), append(args, *v)
+		where, args = append(where, "memo.updated_ts < $"+strconv.Itoa(len(args)+1)), append(args, *v)
 	}
 	if v := find.UpdatedTsAfter; v != nil {
-		where, args = append(where, "memo.updated_ts > "+placeholder(len(args)+1)), append(args, *v)
+		where, args = append(where, "memo.updated_ts > $"+strconv.Itoa(len(args)+1)), append(args, *v)
 	}
 	if v := find.ContentSearch; len(v) != 0 {
 		for _, s := range v {
-			where, args = append(where, "memo.content LIKE "+placeholder(len(args)+1)), append(args, fmt.Sprintf("%%%s%%", s))
+			where, args = append(where, "memo.content ILIKE $"+strconv.Itoa(len(args)+1)), append(args, "%"+s+"%")
 		}
 	}
 	if v := find.VisibilityList; len(v) != 0 {
-		holders := []string{}
-		for _, visibility := range v {
-			holders = append(holders, placeholder(len(args)+1))
+		placeholders := make([]string, len(v))
+		for i, visibility := range v {
+			placeholders[i] = "$" + strconv.Itoa(len(args)+i+1)
 			args = append(args, visibility.String())
 		}
-		where = append(where, fmt.Sprintf("memo.visibility in (%s)", strings.Join(holders, ", ")))
+		where = append(where, "memo.visibility IN ("+strings.Join(placeholders, ", ")+")")
 	}
 	if find.ExcludeComments {
 		where = append(where, "memo_relation.related_memo_id IS NULL")
@@ -83,7 +83,7 @@ func (d *DB) ListMemos(ctx context.Context, find *store.FindMemo) ([]*store.Memo
 	}
 	orders = append(orders, "id DESC")
 	if find.Random {
-		orders = append(orders, "RAND()")
+		orders = append(orders, "RANDOM()")
 	}
 
 	fields := []string{
@@ -102,15 +102,17 @@ func (d *DB) ListMemos(ctx context.Context, find *store.FindMemo) ([]*store.Memo
 	}
 
 	query := `SELECT ` + strings.Join(fields, ", ") + `
-		FROM memo
-		LEFT JOIN memo_organizer ON memo.id = memo_organizer.memo_id AND memo.creator_id = memo_organizer.user_id
-		LEFT JOIN memo_relation ON memo.id = memo_relation.memo_id AND memo_relation.type = 'COMMENT'
-		WHERE ` + strings.Join(where, " AND ") + `
-		ORDER BY ` + strings.Join(orders, ", ")
+        FROM memo
+        LEFT JOIN memo_organizer ON memo.id = memo_organizer.memo_id AND memo.creator_id = memo_organizer.user_id
+        LEFT JOIN memo_relation ON memo.id = memo_relation.memo_id AND memo_relation.type = 'COMMENT'
+        WHERE ` + strings.Join(where, " AND ") + `
+        ORDER BY ` + strings.Join(orders, ", ")
 	if find.Limit != nil {
-		query = fmt.Sprintf("%s LIMIT %d", query, *find.Limit)
+		query = query + ` LIMIT $` + strconv.Itoa(len(args)+1)
+		args = append(args, *find.Limit)
 		if find.Offset != nil {
-			query = fmt.Sprintf("%s OFFSET %d", query, *find.Offset)
+			query = query + ` OFFSET $` + strconv.Itoa(len(args)+1)
+			args = append(args, *find.Offset)
 		}
 	}
 
@@ -123,7 +125,7 @@ func (d *DB) ListMemos(ctx context.Context, find *store.FindMemo) ([]*store.Memo
 	list := make([]*store.Memo, 0)
 	for rows.Next() {
 		var memo store.Memo
-		dests := []any{
+		dests := []interface{}{
 			&memo.ID,
 			&memo.UID,
 			&memo.CreatorID,

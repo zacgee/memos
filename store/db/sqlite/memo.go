@@ -28,7 +28,7 @@ func (d *DB) CreateMemo(ctx context.Context, create *store.Memo) (*store.Memo, e
 }
 
 func (d *DB) ListMemos(ctx context.Context, find *store.FindMemo) ([]*store.Memo, error) {
-	where, args := []string{"1 = 1"}, []any{}
+	where, args := []string{"1 = 1"}, []interface{}{}
 
 	if v := find.ID; v != nil {
 		where, args = append(where, "`memo`.`id` = ?"), append(args, *v)
@@ -40,7 +40,11 @@ func (d *DB) ListMemos(ctx context.Context, find *store.FindMemo) ([]*store.Memo
 		where, args = append(where, "`memo`.`creator_id` = ?"), append(args, *v)
 	}
 	if v := find.RowStatus; v != nil {
-		where, args = append(where, "`memo`.`row_status` = ?"), append(args, *v)
+		if *v == "ARCHIVED" {
+			where, args = append(where, "`memo`.`row_status` = ?"), append(args, *v)
+		} else {
+			where, args = append(where, "`memo`.`row_status` IN (?, ?)"), append(args, *v, "ARCHIVED")
+		}
 	}
 	if v := find.CreatedTsBefore; v != nil {
 		where, args = append(where, "`memo`.`created_ts` < ?"), append(args, *v)
@@ -56,13 +60,13 @@ func (d *DB) ListMemos(ctx context.Context, find *store.FindMemo) ([]*store.Memo
 	}
 	if v := find.ContentSearch; len(v) != 0 {
 		for _, s := range v {
-			where, args = append(where, "`memo`.`content` LIKE ?"), append(args, fmt.Sprintf("%%%s%%", s))
+			where, args = append(where, "`memo`.`content` LIKE ?"), append(args, "%"+s+"%")
 		}
 	}
 	if v := find.VisibilityList; len(v) != 0 {
-		placeholder := []string{}
-		for _, visibility := range v {
-			placeholder = append(placeholder, "?")
+		placeholder := make([]string, len(v))
+		for i, visibility := range v {
+			placeholder[i] = "?"
 			args = append(args, visibility.String())
 		}
 		where = append(where, fmt.Sprintf("`memo`.`visibility` IN (%s)", strings.Join(placeholder, ",")))
@@ -82,7 +86,7 @@ func (d *DB) ListMemos(ctx context.Context, find *store.FindMemo) ([]*store.Memo
 	}
 	orderBy = append(orderBy, "`id` DESC")
 	if find.Random {
-		orderBy = []string{"RANDOM()"}
+		orderBy = append(orderBy, "RANDOM()")
 	}
 
 	fields := []string{
@@ -100,7 +104,7 @@ func (d *DB) ListMemos(ctx context.Context, find *store.FindMemo) ([]*store.Memo
 		fields = append(fields, "`memo`.`content` AS `content`")
 	}
 
-	query := "SELECT " + strings.Join(fields, ", ") + "FROM `memo` " +
+	query := "SELECT " + strings.Join(fields, ", ") + " FROM `memo` " +
 		"LEFT JOIN `memo_organizer` ON `memo`.`id` = `memo_organizer`.`memo_id` AND `memo`.`creator_id` = `memo_organizer`.`user_id` " +
 		"LEFT JOIN `memo_relation` ON `memo`.`id` = `memo_relation`.`memo_id` AND `memo_relation`.`type` = \"COMMENT\" " +
 		"WHERE " + strings.Join(where, " AND ") + " " +
@@ -121,7 +125,7 @@ func (d *DB) ListMemos(ctx context.Context, find *store.FindMemo) ([]*store.Memo
 	list := make([]*store.Memo, 0)
 	for rows.Next() {
 		var memo store.Memo
-		dests := []any{
+		dests := []interface{}{
 			&memo.ID,
 			&memo.UID,
 			&memo.CreatorID,

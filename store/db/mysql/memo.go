@@ -50,7 +50,9 @@ func (d *DB) ListMemos(ctx context.Context, find *store.FindMemo) ([]*store.Memo
 		where, args = append(where, "`memo`.`creator_id` = ?"), append(args, *v)
 	}
 	if v := find.RowStatus; v != nil {
-		where, args = append(where, "`memo`.`row_status` = ?"), append(args, *v)
+		where, args = append(where, "`memo`.`row_status` IN (?, ?)"), append(args, *v, "ARCHIVED")
+	} else {
+		where, args = append(where, "`memo`.`row_status` = ?"), append(args, "ARCHIVED")
 	}
 	if v := find.CreatedTsBefore; v != nil {
 		where, args = append(where, "UNIX_TIMESTAMP(`memo`.`created_ts`) < ?"), append(args, *v)
